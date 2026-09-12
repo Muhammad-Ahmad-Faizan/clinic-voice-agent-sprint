@@ -143,6 +143,43 @@ class CancelAppointmentArgs(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Unified booking decision schema.
+#
+# Every booking-related request from the voice agent is validated against
+# `BookingRequest` BEFORE any business logic runs. `intent` drives what
+# happens next; the optional detail fields are only meaningful for the
+# matching intent (enforced further inside the handler).
+# ---------------------------------------------------------------------------
+
+
+class BookingRequest(BaseModel):
+    """A validated booking decision from the voice agent.
+
+    Mirrors the acceptance schema exactly:
+
+      - call_id   (required, non-empty)
+      - intent    (required; one of "book" / "reschedule" / "cancel" / "unclear")
+      - the rest  (optional)
+
+    `extra="forbid"` rejects unknown fields so a malformed payload returns a
+    clean 422 instead of being partially applied or silently swallowed.
+    `test_case_tag` is an optional harness label carried through to the
+    decision log (null when not provided).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: str = Field(min_length=1)
+    intent: Literal["book", "reschedule", "cancel", "unclear"]
+    patient_name: str | None = None
+    requested_date: str | None = None
+    requested_time: str | None = None
+    reason: str | None = None
+    existing_appointment_id: str | None = None
+    test_case_tag: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Response models — Vapi expects a `results` array with one entry per tool
 # call, each keyed by `toolCallId` and carrying `result` (string or object).
 # ---------------------------------------------------------------------------
@@ -164,6 +201,20 @@ class VapiToolResponse(BaseModel):
     """Response body Vapi expects: one result entry per requested tool call."""
 
     results: list[VapiToolResult] = Field(default_factory=list)
+
+
+class BookingResponse(BaseModel):
+    """Spoken-friendly reply for the unified `POST /tools/booking` endpoint.
+
+    Every reply carries a `message` the voice agent can read aloud — success
+    texts and fallbacks alike — so a raw exception or stack trace never
+    reaches the caller.
+    """
+
+    call_id: str
+    message: str
+    action_taken: str
+    booking_reference: str | None = None
 
 
 class HealthResponse(BaseModel):

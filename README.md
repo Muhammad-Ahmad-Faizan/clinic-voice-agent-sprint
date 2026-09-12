@@ -29,11 +29,15 @@ clinic-voice-agent/
 ├── app/
 │   ├── main.py               # FastAPI entrypoint: /health, router wiring, logging
 │   ├── config.py             # pydantic-settings, env-driven configuration
-│   ├── models.py             # Vapi tool-call request/response models
+│   ├── decision_log.py       # structured JSON-lines decision logging (Phase 2)
+│   ├── models.py             # Vapi tool-call request/response models + /tools/booking schema
 │   ├── routers/
-│   │   └── tools.py          # /tools/* endpoints (tool implementations go here)
+│   │   ├── tools.py          # /tools/* endpoints (tool implementations go here)
+│   │   ├── booking.py        # POST /tools/booking — unified intent-based booking decision
+│   │   └── dashboard.py      # GET /dashboard — read-only decision-log viewer
 │   └── services/
 │       └── n8n_client.py     # async httpx wrapper for n8n webhooks
+├── data/decision_log.jsonl   # runtime decision log (gitignored, created on first entry)
 ├── requirements.txt
 ├── .env.example
 ├── Dockerfile
@@ -148,7 +152,8 @@ With n8n wired up you'll get the open slots back:
 ```
 
 Without n8n configured the endpoint still answers `200` with the graceful
-fallback `"I'm having trouble checking the calendar right now"`.
+fallback `"I'm having trouble checking availability right now, let me take
+your number and have someone call you back"`.
 
 ### Book an appointment
 
@@ -283,13 +288,16 @@ with `VAPI_WEBHOOK_SECRET`.
 | Variable | Required | Description |
 | --- | --- | --- |
 | `N8N_WEBHOOK_URL` | needed for tools | Base URL of the n8n webhook that runs the Google Calendar / notification workflows. |
+| `N8N_RESCHEDULE_WEBHOOK_URL` | needed for reschedule | Dedicated n8n reschedule webhook. Expects `{"existing_appointment_id", "new_date", "new_time"}`; answers `{"status":"success","appointment_id"}` or `{"status":"conflict"}`. |
 | `VAPI_WEBHOOK_SECRET` | recommended | Shared secret; Vapi sends it as the `x-vapi-secret` header. Tool routes reject requests that don't match. Leave empty to disable the check locally. |
 | `GROQ_API_KEY` | reference only | Groq runs the LLM *inside* Vapi — this backend never calls Groq. Kept here so the whole demo's env lives in one place. |
 | `PORT` | optional | Port for uvicorn (Render/Railway inject it automatically). Default `8000`. |
 | `N8N_TIMEOUT_SECONDS` | optional | Outbound timeout for n8n calls. Default `5` — keep it tight; Vapi expects tool results in ~2–3s. |
 | `N8N_MAX_RETRIES` | optional | Retries for transient n8n failures (timeouts, 502/503/504). Default `1`. |
+| `DECISION_LOG_PATH` | optional | JSON-lines decision log (file store). Default `data/decision_log.jsonl` — used when `DATABASE_URL` isn't set. |
+| `DATABASE_URL` | optional | Postgres connection string (Supabase / Neon / Render). When set, decision-log entries live in an auto-created `decision_log` table (survives redeploys) instead of the file; the dashboard reads the same store. When empty, the file is used — local dev has zero setup. |
 
-These six variables (`app/config.py`) are the complete configuration surface —
+These nine variables (`app/config.py`) are the complete configuration surface —
 there are no hidden settings. For a bare `/health` smoke test the defaults are
 fine; to exercise the tools you only need `N8N_WEBHOOK_URL`, plus
 `VAPI_WEBHOOK_SECRET` anywhere real traffic is possible.
@@ -429,7 +437,38 @@ few minutes ahead of any live demo or recording.
 - `POST /tools/check-availability` ✅ — n8n → Google Calendar free/busy lookup (implemented)
 - `POST /tools/book-appointment` ✅ — n8n → create Calendar event + confirmation, idempotent via `toolCallId` (implemented)
 - `POST /tools/cancel-appointment` ✅ — n8n → delete event + notify (implemented)
-- `POST /tools/reschedule-appointment` — n8n → move event + notify (planned)
+- `POST /tools/booking` ✅ — **unified, intent-based booking decision** (implemented):
+  accepts a normalized flat body and validates it before any business logic
+  runs — `call_id` (required), `intent` (`book` | `reschedule` | `cancel` |
+  `unclear`), and optional `patient_name` / `requested_date` / `requested_time`
+  / `reason` / `existing_appointment_id` / `test_case_tag`. Malformed payloads
+  get a clean `422`. `book`/`cancel` forward to n8n; `reschedule` moves the
+  appointment via `N8N_RESCHEDULE_WEBHOOK_URL` (missing fields → clarifying
+  question; `{"status":"conflict"}` → 2–3 alternative slots offered; any other
+  failure → the graceful callback fallback); `unclear` asks for clarification.
+  Every reply carries a spoken-friendly `message` — failures never leak
+  exceptions.
+- `POST /tools/reschedule-appointment` — n8n → move event + notify (planned; the
+  unified `POST /tools/booking` reschedule intent already covers this flow).
+
+## Decision log & dashboard (read-only)
+
+Every decision point — booked, cancelled, rescheduled, escalated, or failed —
+records one structured entry: `call_id`, `timestamp`, `test_case_tag`,
+`intent_detected`, `action_taken`, `outcome` (`success` | `failure` |
+`escalated`), `notes`.
+
+- **With `DATABASE_URL` set** (Supabase/Neon/Render Postgres): entries are
+  stored in an auto-created `decision_log` table — **survives redeploys and
+  restarts**. The table is created on first use, so no migration step is
+  needed for the demo.
+- **Without it**: entries append to `data/decision_log.jsonl`
+  (`DECISION_LOG_PATH`) — the original file store, kept so local dev works with
+  zero setup. The file is wiped whenever a free-tier instance restarts.
+
+- `GET /dashboard` — plain HTML page (no auth, no build step) rendering the
+  last 50 entries as a table, newest first, from whichever store is active.
+  Useful for demos and review: `curl -s http://127.0.0.1:8000/dashboard`.
 
 ## Webhooks
 

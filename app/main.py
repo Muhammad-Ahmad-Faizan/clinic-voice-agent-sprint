@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.middleware import setup_exception_handlers
 from app.models import HealthResponse
-from app.routers import tools, webhooks
+from app.routers import booking, dashboard, tools, webhooks
 from app.services import n8n_client
 
 logging.basicConfig(
@@ -63,8 +63,14 @@ setup_exception_handlers(app)
 # Vapi tool endpoints, e.g. POST /tools/book-appointment
 app.include_router(tools.router, prefix="/tools")
 
+# Unified intent-based booking endpoint, e.g. POST /tools/booking
+app.include_router(booking.router, prefix="/tools")
+
 # Vapi server-to-server webhooks, e.g. POST /webhook/call-ended
 app.include_router(webhooks.router, prefix="/webhook")
+
+# Read-only decision-log dashboard, e.g. GET /dashboard (no auth)
+app.include_router(dashboard.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])

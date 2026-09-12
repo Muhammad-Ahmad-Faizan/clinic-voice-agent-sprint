@@ -34,7 +34,10 @@ AVAILABILITY_PAYLOAD = {
     }
 }
 
-FALLBACK_MESSAGE = "I'm having trouble checking the calendar right now"
+FALLBACK_MESSAGE = (
+    "I'm having trouble checking availability right now, "
+    "let me take your number and have someone call you back"
+)
 
 
 def test_check_availability_success_shape():

@@ -83,7 +83,10 @@ CANCEL_PAYLOAD = {
     }
 }
 
-FALLBACK_MESSAGE = "I'm having trouble checking the calendar right now"
+FALLBACK_MESSAGE = (
+    "I'm having trouble checking availability right now, "
+    "let me take your number and have someone call you back"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -247,3 +250,64 @@ def test_cancel_appointment_with_mocked_n8n():
     assert "BK-2026-0001 has been cancelled" in result["result"]
     assert received == [{"booking_reference": "BK-2026-0001"}]
     assert route.call_count == 1
+
+
+# --- POST /tools/booking (reschedule, dedicated webhook) -----------------------
+
+RESCHEDULE_BASE = "https://n8n.test/reschedule"
+RESCHEDULE_PAYLOAD = {
+    "call_id": "call_resched_http_01",
+    "intent": "reschedule",
+    "existing_appointment_id": "BK-2026-0001",
+    "requested_date": "2026-09-20",
+    "requested_time": "14:00",
+}
+
+
+def test_reschedule_success_with_mocked_n8n(monkeypatch):
+    """The exact payload hits N8N_RESCHEDULE_WEBHOOK_URL; success is confirmed."""
+    monkeypatch.setattr(settings, "n8n_reschedule_webhook_url", RESCHEDULE_BASE)
+    received: list[dict] = []
+
+    def reschedule_handler(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "success", "appointment_id": "APPT-9999"})
+
+    with respx.mock() as router:
+        route = router.post(RESCHEDULE_BASE).mock(side_effect=reschedule_handler)
+        response = client.post("/tools/booking", json=RESCHEDULE_PAYLOAD)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action_taken"] == "rescheduled"
+    assert body["booking_reference"] == "APPT-9999"
+    assert "has been moved to 2026-09-20 at 14:00" in body["message"]
+
+    # The exact JSON body the reschedule workflow received:
+    assert received == [
+        {
+            "existing_appointment_id": "BK-2026-0001",
+            "new_date": "2026-09-20",
+            "new_time": "14:00",
+        }
+    ]
+    assert route.call_count == 1
+
+
+def test_reschedule_conflict_offers_alternatives_with_mocked_n8n(monkeypatch):
+    """A `conflict` answer triggers the alternative-slot offer via availability."""
+    monkeypatch.setattr(settings, "n8n_reschedule_webhook_url", RESCHEDULE_BASE)
+    with respx.mock() as router:
+        router.post(RESCHEDULE_BASE).mock(
+            return_value=httpx.Response(200, json={"status": "conflict"})
+        )
+        router.post(f"{N8N_BASE}/check-availability").mock(
+            return_value=httpx.Response(200, json={"available_slots": ["11:00 AM", "2:30 PM"]})
+        )
+        response = client.post("/tools/booking", json=RESCHEDULE_PAYLOAD)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action_taken"] == "reschedule_conflict"
+    assert "11:00 AM" in body["message"]
+    assert "Would any of those work" in body["message"]

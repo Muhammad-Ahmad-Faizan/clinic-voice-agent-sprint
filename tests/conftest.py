@@ -2,8 +2,26 @@
 
 import pytest
 
+from app.config import settings
 from app.routers import tools as tools_router
 from app.services import n8n_client
+
+
+@pytest.fixture(autouse=True)
+def _isolate_decision_log(tmp_path_factory, monkeypatch):
+    """Keep every test's decision log out of the repo (and off any real DB).
+
+    Runs for every test: points DECISION_LOG_PATH at a session-temp file and
+    pins DATABASE_URL empty, so neither the default `data/decision_log.jsonl`
+    nor a developer's real Postgres is ever written to by the suite. Tests
+    that exercise the Postgres path (test_decision_log_postgres.py) override
+    DATABASE_URL in their own fixture.
+    """
+    log_dir = tmp_path_factory.mktemp("decision_log")
+    monkeypatch.setattr(
+        settings, "decision_log_path", str(log_dir / "decision_log.jsonl")
+    )
+    monkeypatch.setattr(settings, "database_url", "")
 
 
 @pytest.fixture(autouse=True)

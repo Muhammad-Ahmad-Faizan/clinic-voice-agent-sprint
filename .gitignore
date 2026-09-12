@@ -11,6 +11,10 @@ venv/
 server.log
 server_err.log
 
+# Structured decision log (runtime data written by app/decision_log.py)
+decision_log.jsonl
+data/
+
 # IDE / OS
 .idea/
 .vscode/

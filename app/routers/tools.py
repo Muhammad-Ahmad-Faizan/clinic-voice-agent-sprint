@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 
 from app.dependencies import verify_vapi_secret
+from app.decision_log import log_decision
 from app.models import (
     BookAppointmentArgs,
     CancelAppointmentArgs,
@@ -33,20 +34,24 @@ from app.services.n8n_client import N8NError
 logger = logging.getLogger(__name__)
 
 # Graceful text fed back to the LLM instead of crashing; the bot relays it.
-CALENDAR_UNAVAILABLE_MESSAGE = "I'm having trouble checking the calendar right now"
+CALENDAR_UNAVAILABLE_MESSAGE = (
+    "I'm having trouble checking availability right now, "
+    "let me take your number and have someone call you back"
+)
 INVALID_DATE_MESSAGE = (
     "Sorry, I didn't catch the date you'd like to check. Could you repeat it?"
 )
 BOOKING_UNAVAILABLE_MESSAGE = (
-    "I'm having trouble booking your appointment right now. Please try again in a moment."
+    "I'm having trouble booking your appointment right now, "
+    "let me take your number and have someone call you back."
 )
 INVALID_BOOKING_MESSAGE = (
     "Sorry, I didn't get all your booking details. "
     "Could you repeat your name, phone number, and preferred time?"
 )
 CANCEL_UNAVAILABLE_MESSAGE = (
-    "I'm having trouble cancelling the appointment right now. "
-    "Please try again in a moment."
+    "I'm having trouble cancelling the appointment right now, "
+    "let me take your number and have someone call you back."
 )
 INVALID_CANCEL_MESSAGE = (
     "Sorry, I didn't catch the booking reference. Could you repeat it?"
@@ -100,6 +105,17 @@ async def check_availability(request: VapiToolCallRequest) -> VapiToolResponse:
                 )
 
             results.append(tool_result(call, message))
+            log_decision(
+                call_id=call.id,
+                intent_detected="check_availability",
+                action_taken="check_availability",
+                outcome="success",
+                notes=(
+                    f"date={args.date} service_type={args.service_type or 'any'} "
+                    f"open_slots={len(slots)} "
+                    f"latency_ms={(time.perf_counter() - call_started) * 1000:.0f}"
+                ),
+            )
             logger.info(
                 "check-availability: call=%s date=%s service_type=%s slots=%s "
                 "latency=%.0fms",
@@ -111,14 +127,35 @@ async def check_availability(request: VapiToolCallRequest) -> VapiToolResponse:
             )
         except ValidationError as exc:
             logger.warning("check-availability: invalid args for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="check_availability",
+                action_taken="check_availability_rejected",
+                outcome="failure",
+                notes=f"invalid request args: {exc}",
+            )
             results.append(tool_result(call, INVALID_DATE_MESSAGE))
         except N8NError as exc:
             logger.error("check-availability: n8n failed for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="check_availability",
+                action_taken="check_availability",
+                outcome="failure",
+                notes=f"n8n/calendar unavailable: {exc}",
+            )
             results.append(tool_result(call, CALENDAR_UNAVAILABLE_MESSAGE))
         except Exception:
             # Safety net: a mid-call bug must never turn into a 500 on a
             # webhook Vapi is waiting on.
             logger.exception("check-availability: unexpected error for call %s", call.id)
+            log_decision(
+                call_id=call.id,
+                intent_detected="check_availability",
+                action_taken="check_availability",
+                outcome="failure",
+                notes="unexpected internal error",
+            )
             results.append(tool_result(call, CALENDAR_UNAVAILABLE_MESSAGE))
 
     total_ms = (time.perf_counter() - started) * 1000
@@ -155,6 +192,13 @@ async def book_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
                 call.id,
                 reference,
             )
+            log_decision(
+                call_id=call.id,
+                intent_detected="book",
+                action_taken="book_cached",
+                outcome="success",
+                notes=f"served from idempotency cache, booking_reference={reference}",
+            )
             results.append(tool_result(call, cached))
             continue
 
@@ -162,6 +206,13 @@ async def book_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
             args = BookAppointmentArgs.model_validate(call.function.parameters)
         except ValidationError as exc:
             logger.warning("book-appointment: invalid args for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="book",
+                action_taken="book_rejected",
+                outcome="failure",
+                notes=f"invalid request args: {exc}",
+            )
             results.append(tool_result(call, INVALID_BOOKING_MESSAGE))
             continue
 
@@ -185,6 +236,17 @@ async def book_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
             # toolCallId as done, so a retry actually retries.
             BOOKING_STORE[call.id] = confirmation
             results.append(tool_result(call, confirmation))
+            log_decision(
+                call_id=call.id,
+                intent_detected="book",
+                action_taken="book",
+                outcome="success",
+                notes=(
+                    f"date={args.date} time={args.time} service_type={args.service_type} "
+                    f"booking_reference={booking_reference} "
+                    f"latency_ms={(time.perf_counter() - call_started) * 1000:.0f}"
+                ),
+            )
             logger.info(
                 "book-appointment: confirmed call=%s date=%s time=%s "
                 "service_type=%s reference=%s latency=%.0fms",
@@ -197,11 +259,25 @@ async def book_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
             )
         except N8NError as exc:
             logger.error("book-appointment: n8n failed for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="book",
+                action_taken="book",
+                outcome="failure",
+                notes=f"n8n/calendar unavailable: {exc}",
+            )
             results.append(tool_result(call, BOOKING_UNAVAILABLE_MESSAGE))
         except Exception:
             # Safety net: a mid-call bug must never turn into a 500 on a
             # webhook Vapi is waiting on.
             logger.exception("book-appointment: unexpected error for call %s", call.id)
+            log_decision(
+                call_id=call.id,
+                intent_detected="book",
+                action_taken="book",
+                outcome="failure",
+                notes="unexpected internal error",
+            )
             results.append(tool_result(call, BOOKING_UNAVAILABLE_MESSAGE))
 
     total_ms = (time.perf_counter() - started) * 1000
@@ -228,6 +304,13 @@ async def cancel_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
             args = CancelAppointmentArgs.model_validate(call.function.parameters)
         except ValidationError as exc:
             logger.warning("cancel-appointment: invalid args for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="cancel",
+                action_taken="cancel_rejected",
+                outcome="failure",
+                notes=f"invalid request args: {exc}",
+            )
             results.append(tool_result(call, INVALID_CANCEL_MESSAGE))
             continue
 
@@ -238,6 +321,16 @@ async def cancel_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
                 "Is there anything else I can help you with?"
             )
             results.append(tool_result(call, confirmation))
+            log_decision(
+                call_id=call.id,
+                intent_detected="cancel",
+                action_taken="cancel",
+                outcome="success",
+                notes=(
+                    f"booking_reference={args.booking_reference} "
+                    f"latency_ms={(time.perf_counter() - call_started) * 1000:.0f}"
+                ),
+            )
             logger.info(
                 "cancel-appointment: cancelled call=%s reference=%s latency=%.0fms",
                 call.id,
@@ -246,11 +339,25 @@ async def cancel_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
             )
         except N8NError as exc:
             logger.error("cancel-appointment: n8n failed for call %s: %s", call.id, exc)
+            log_decision(
+                call_id=call.id,
+                intent_detected="cancel",
+                action_taken="cancel",
+                outcome="failure",
+                notes=f"n8n/calendar unavailable: {exc}",
+            )
             results.append(tool_result(call, CANCEL_UNAVAILABLE_MESSAGE))
         except Exception:
             # Safety net: a mid-call bug must never turn into a 500 on a
             # webhook Vapi is waiting on.
             logger.exception("cancel-appointment: unexpected error for call %s", call.id)
+            log_decision(
+                call_id=call.id,
+                intent_detected="cancel",
+                action_taken="cancel",
+                outcome="failure",
+                notes="unexpected internal error",
+            )
             results.append(tool_result(call, CANCEL_UNAVAILABLE_MESSAGE))
 
     total_ms = (time.perf_counter() - started) * 1000

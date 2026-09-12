@@ -21,6 +21,19 @@ class N8NError(RuntimeError):
     """Raised when an n8n webhook call fails (network error or non-2xx status)."""
 
 
+class RescheduleConflictError(N8NError):
+    """Raised when a reschedule request hits a slot that isn't free.
+
+    Subclasses N8NError so existing generic n8n-failure handlers still catch
+    it — but it's also catchable on its own to offer alternative slots.
+    """
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return `payload` minus keys whose value is an empty string."""
+    return {key: value for key, value in payload.items() if value not in ("", None)}
+
+
 def get_client() -> httpx.AsyncClient:
     """Lazily create a shared AsyncClient so connections get pooled."""
     global _client
@@ -37,13 +50,18 @@ async def close_client() -> None:
         _client = None
 
 
-async def call_n8n_webhook(payload: dict[str, Any], *, path: str = "") -> Any:
-    """POST `payload` as JSON to the configured n8n webhook.
+async def call_n8n_webhook(
+    payload: dict[str, Any], *, path: str = "", url: str | None = None
+) -> Any:
+    """POST `payload` as JSON to a configured n8n webhook.
 
     Args:
         payload: JSON-serializable body forwarded to the workflow.
         path: Optional sub-path appended to N8N_WEBHOOK_URL — useful when one
             n8n host serves several workflows ("availability", "booking", ...).
+        url: Optional explicit webhook URL. When given it wins over the
+            N8N_WEBHOOK_URL base + path combo (used by the dedicated
+            reschedule webhook, N8N_RESCHEDULE_WEBHOOK_URL).
 
     Returns:
         The parsed JSON response, or `{}` when the workflow replies with an
@@ -52,11 +70,11 @@ async def call_n8n_webhook(payload: dict[str, Any], *, path: str = "") -> Any:
     Raises:
         N8NError: On timeout/connection failure or a non-2xx response.
     """
-    base_url = settings.n8n_webhook_url
-    if not base_url:
-        raise N8NError("N8N_WEBHOOK_URL is not configured")
-
-    url = f"{base_url.rstrip('/')}/{path.lstrip('/')}" if path else base_url
+    if url is None:
+        base_url = settings.n8n_webhook_url
+        if not base_url:
+            raise N8NError("N8N_WEBHOOK_URL is not configured")
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}" if path else base_url
     client = get_client()
 
     # Timeout comes from the shared client (settings.n8n_timeout_seconds).
@@ -136,10 +154,10 @@ async def get_availability(date: str, service_type: str | None = None) -> Any:
 
 async def create_booking(
     patient_name: str,
-    phone_number: str,
-    date: str,
-    time: str,
-    service_type: str,
+    phone_number: str = "",
+    date: str = "",
+    time: str = "",
+    service_type: str = "",
 ) -> str:
     """Create an appointment via the n8n calendar workflow.
 
@@ -149,19 +167,22 @@ async def create_booking(
 
         {"booking_reference": "BK-2026-0001"}
 
+    Empty string fields (e.g. phone on the normalized booking schema, which
+    carries no phone) are omitted from the forwarded payload.
+
     Returns the booking_reference string.
 
     Raises N8NError on transport failures, non-2xx responses, or a reply that
     doesn't include a booking_reference.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "patient_name": patient_name,
         "phone_number": phone_number,
         "date": date,
         "time": time,
         "service_type": service_type,
     }
-    data = await call_n8n_webhook(payload, path="book-appointment")
+    data = await call_n8n_webhook(_drop_empty(payload), path="book-appointment")
 
     if isinstance(data, str):
         # Tolerate a bare-string reply carrying just the reference.
@@ -188,3 +209,49 @@ async def cancel_booking(booking_reference: str) -> Any:
     return await call_n8n_webhook(
         {"booking_reference": booking_reference}, path="cancel-appointment"
     )
+
+
+async def reschedule_booking(
+    existing_appointment_id: str,
+    new_date: str,
+    new_time: str,
+) -> str:
+    """Move an appointment via the dedicated n8n reschedule workflow.
+
+    POSTs to N8N_RESCHEDULE_WEBHOOK_URL:
+
+        {"existing_appointment_id": "...", "new_date": "YYYY-MM-DD",
+         "new_time": "HH:MM"}
+
+    and reads the workflow's reply:
+
+        {"status": "success", "appointment_id": "..."}  -> returns appointment_id
+        {"status": "conflict"}                           -> raises RescheduleConflictError
+
+    Raises:
+        RescheduleConflictError: The requested slot is not free.
+        N8NError: Missing config, timeout/connection failure, non-2xx
+            response, or a reply that isn't the documented shape.
+    """
+    webhook_url = settings.n8n_reschedule_webhook_url
+    if not webhook_url:
+        raise N8NError("N8N_RESCHEDULE_WEBHOOK_URL is not configured")
+
+    data = await call_n8n_webhook(
+        {
+            "existing_appointment_id": existing_appointment_id,
+            "new_date": new_date,
+            "new_time": new_time,
+        },
+        url=webhook_url,
+    )
+
+    if isinstance(data, dict):
+        if data.get("status") == "conflict":
+            raise RescheduleConflictError("the requested new slot is not available")
+        if data.get("status") == "success":
+            appointment_id = data.get("appointment_id")
+            if isinstance(appointment_id, str) and appointment_id.strip():
+                return appointment_id.strip()
+
+    raise N8NError("n8n reschedule returned an unexpected response")

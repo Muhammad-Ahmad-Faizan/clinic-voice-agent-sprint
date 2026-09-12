@@ -17,11 +17,22 @@ services:
       # Base URL of the n8n webhook that runs the Google Calendar workflows.
       - key: N8N_WEBHOOK_URL
         value: https://your-n8n-host.app.n8n.cloud/webhook/clinic-booking
+      # Dedicated reschedule workflow webhook (moves a Calendar event).
+      - key: N8N_RESCHEDULE_WEBHOOK_URL
+        value: https://your-n8n-host.app.n8n.cloud/webhook/clinic-reschedule
       # Reference only (Groq runs inside Vapi). Leave empty unless you want it stored.
       - key: GROQ_API_KEY
+        sync: false
+      # Optional Postgres for the decision log (self-managed on Render): set a
+      # value here or under Service -> Environment to persist decision-log
+      # entries across redeploys. Empty falls back to DECISION_LOG_PATH (file).
+      - key: DATABASE_URL
         sync: false
       - key: N8N_TIMEOUT_SECONDS
         value: "5"
       - key: N8N_MAX_RETRIES
         value: "1"
+      # Structured decision log read by GET /dashboard (default is fine).
+      - key: DECISION_LOG_PATH
+        value: data/decision_log.jsonl
       # PORT is injected by Render automatically — do not set it here.

@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     # n8n webhook that fans out to the Google Calendar + notification workflows.
     n8n_webhook_url: str = ""
 
+    # Dedicated n8n reschedule workflow: POSTs {existing_appointment_id,
+    # new_date, new_time} and answers {"status": "success", "appointment_id"}
+    # or {"status": "conflict"}.
+    n8n_reschedule_webhook_url: str = ""
+
+    # Optional SQLAlchemy database URL (Supabase/Neon/Render Postgres export
+    # this as DATABASE_URL). When set, the structured decision log is written
+    # to a `decision_log` table; otherwise the JSON-lines file
+    # (DECISION_LOG_PATH) is used so local dev works without a database.
+    database_url: str = ""
+
     # Shared secret Vapi sends on tool-call requests as the `x-vapi-secret`
     # header. Leave empty to disable the check (handy for local dev).
     vapi_webhook_secret: str = ""
@@ -38,6 +49,11 @@ class Settings(BaseSettings):
     # (timeouts/connection errors and n8n 502/503/504). A single retry keeps
     # the Vapi round-trip inside its ~2-3s budget.
     n8n_max_retries: int = 1
+
+    # Append-only structured decision log (JSON Lines). Each line is one
+    # decision point — book/reschedule/cancel/escalate/fail — and is what
+    # GET /dashboard renders.
+    decision_log_path: str = "data/decision_log.jsonl"
 
 
 @lru_cache
