@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets / local environment
+.env
+
+# Local artifacts
+server.log
+server_err.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

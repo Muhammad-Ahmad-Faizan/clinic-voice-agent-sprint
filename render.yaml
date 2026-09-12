@@ -1,0 +1,27 @@
+# Render Blueprint (Infrastructure-as-Code) for the clinic-voice-agent API.
+# Deploy: Render dashboard -> New + -> Blueprint -> connect this repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: clinic-voice-agent
+    runtime: docker
+    plan: free
+    dockerContext: clinic-voice-agent
+    dockerfilePath: clinic-voice-agent/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      # Vapi sends this on every tool call as the x-vapi-secret header.
+      # Render generates a random value — copy it into the Vapi tool config.
+      - key: VAPI_WEBHOOK_SECRET
+        generateValue: true
+      # Base URL of the n8n webhook that runs the Google Calendar workflows.
+      - key: N8N_WEBHOOK_URL
+        value: https://your-n8n-host.app.n8n.cloud/webhook/clinic-booking
+      # Reference only (Groq runs inside Vapi). Leave empty unless you want it stored.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: N8N_TIMEOUT_SECONDS
+        value: "5"
+      - key: N8N_MAX_RETRIES
+        value: "1"
+      # PORT is injected by Render automatically — do not set it here.
