@@ -10,7 +10,7 @@ services:
     dockerfilePath: clinic-voice-agent/Dockerfile
     healthCheckPath: /health
     envVars:
-      # Vapi sends this on every tool call as the x-vapi-secret header.
+      # Vapi sends this on every tool call as an Authorization Bearer token.
       # Render generates a random value — copy it into the Vapi tool config.
       - key: VAPI_WEBHOOK_SECRET
         generateValue: true

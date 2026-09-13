@@ -19,13 +19,13 @@ escalated, rejected, failed) is appended to the structured decision log
 (see app/decision_log.py).
 
 Mounted under the /tools prefix (see app/main.py) and protected by the same
-`x-vapi-secret` header check as the other tool endpoints.
+Authorization Bearer check as the other tool endpoints.
 """
 
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends
 
 from app.dependencies import verify_vapi_secret
 from app.decision_log import log_decision
@@ -35,19 +35,7 @@ from app.services.n8n_client import N8NError, RescheduleConflictError
 
 logger = logging.getLogger(__name__)
 
-
-
-def _temporary_debug_verify_vapi_secret(
-    request: Request, x_vapi_secret: str | None = Header(default=None)
-) -> None:
-    # TEMPORARY DEBUG LOGGING: remove this wrapper once header diagnostics are complete.
-    logger.info("TEMPORARY DEBUG LOGGING: /tools/booking headers=%s", dict(request.headers))
-    verify_vapi_secret(request, x_vapi_secret)
-
-
-router = APIRouter(
-    tags=["booking"], dependencies=[Depends(_temporary_debug_verify_vapi_secret)]
-)
+router = APIRouter(tags=["booking"], dependencies=[Depends(verify_vapi_secret)])
 
 # Spoken-friendly fallback whenever the calendar backend (n8n) can't be
 # reached — the voice agent relays it, takes the caller's number, and someone

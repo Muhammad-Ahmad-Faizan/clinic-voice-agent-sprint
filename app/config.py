@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     # (DECISION_LOG_PATH) is used so local dev works without a database.
     database_url: str = ""
 
-    # Shared secret Vapi sends on tool-call requests as the `x-vapi-secret`
-    # header. Leave empty to disable the check (handy for local dev).
+    # Shared secret Vapi sends on tool-call requests as an Authorization Bearer
+    # token. Leave empty to disable the check (handy for local dev).
     vapi_webhook_secret: str = ""
 
     # Reference only: the LLM (Groq Llama-3.1) runs inside Vapi; this backend

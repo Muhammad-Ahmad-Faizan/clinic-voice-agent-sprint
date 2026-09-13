@@ -46,7 +46,7 @@ def test_wrong_secret_header_rejected_when_configured(monkeypatch):
     response = client.post(
         "/tools/check-availability",
         json=VALID_TOOL_PAYLOAD,
-        headers={"x-vapi-secret": "wrong-secret"},
+        headers={"Authorization": "Bearer wrong-secret"},
     )
     assert response.status_code == 401
 
@@ -56,7 +56,7 @@ def test_wrong_secret_header_rejected_on_webhooks(monkeypatch):
     response = client.post(
         "/webhook/call-ended",
         json={"message": {"type": "end-of-call-report"}},
-        headers={"x-vapi-secret": "nope"},
+        headers={"Authorization": "Bearer nope"},
     )
     assert response.status_code == 401
 
@@ -68,7 +68,7 @@ def test_correct_secret_header_accepted(monkeypatch):
         response = client.post(
             "/tools/check-availability",
             json=VALID_TOOL_PAYLOAD,
-            headers={"x-vapi-secret": "supersecret"},
+            headers={"Authorization": "Bearer supersecret"},
         )
     assert response.status_code == 200
     assert mocked.await_count == 1

@@ -96,7 +96,7 @@ With `uvicorn app.main:app --reload` running locally (see above), these
 commands hit each endpoint directly. The payloads are exactly what Vapi sends.
 
 > If `VAPI_WEBHOOK_SECRET` is set, every request needs the matching
-> `x-vapi-secret` header. With no secret configured (local dev) the header is
+> `Authorization: Bearer <secret>` header. With no secret configured (local dev) the header is
 > ignored — the examples include it so they work either way once you swap in
 > your own value.
 >
@@ -116,7 +116,7 @@ curl -s http://127.0.0.1:8000/health
 ```bash
 curl -s -X POST http://127.0.0.1:8000/tools/check-availability \
   -H "Content-Type: application/json" \
-  -H "x-vapi-secret: change-me" \
+  -H "Authorization: Bearer change-me" \
   -d '{
     "message": {
       "type": "tool-calls",
@@ -160,7 +160,7 @@ your number and have someone call you back"`.
 ```bash
 curl -s -X POST http://127.0.0.1:8000/tools/book-appointment \
   -H "Content-Type: application/json" \
-  -H "x-vapi-secret: change-me" \
+  -H "Authorization: Bearer change-me" \
   -d '{
     "message": {
       "type": "tool-calls",
@@ -210,7 +210,7 @@ n8n isn't called again, so retries can't double-book.
 ```bash
 curl -s -X POST http://127.0.0.1:8000/tools/cancel-appointment \
   -H "Content-Type: application/json" \
-  -H "x-vapi-secret: change-me" \
+  -H "Authorization: Bearer change-me" \
   -d '{
     "message": {
       "type": "tool-calls",
@@ -249,7 +249,7 @@ Response:
 ```bash
 curl -s -X POST http://127.0.0.1:8000/webhook/call-ended \
   -H "Content-Type: application/json" \
-  -H "x-vapi-secret: change-me" \
+  -H "Authorization: Bearer change-me" \
   -d '{
     "message": {
       "type": "end-of-call-report",
@@ -289,7 +289,7 @@ with `VAPI_WEBHOOK_SECRET`.
 | --- | --- | --- |
 | `N8N_WEBHOOK_URL` | needed for tools | Base URL of the n8n webhook that runs the Google Calendar / notification workflows. |
 | `N8N_RESCHEDULE_WEBHOOK_URL` | needed for reschedule | Dedicated n8n reschedule webhook. Expects `{"existing_appointment_id", "new_date", "new_time"}`; answers `{"status":"success","appointment_id"}` or `{"status":"conflict"}`. |
-| `VAPI_WEBHOOK_SECRET` | recommended | Shared secret; Vapi sends it as the `x-vapi-secret` header. Tool routes reject requests that don't match. Leave empty to disable the check locally. |
+| `VAPI_WEBHOOK_SECRET` | recommended | Shared secret; Vapi sends it as `Authorization: Bearer <secret>`. Tool routes reject requests that don't match. Leave empty to disable the check locally. |
 | `GROQ_API_KEY` | reference only | Groq runs the LLM *inside* Vapi — this backend never calls Groq. Kept here so the whole demo's env lives in one place. |
 | `PORT` | optional | Port for uvicorn (Render/Railway inject it automatically). Default `8000`. |
 | `N8N_TIMEOUT_SECONDS` | optional | Outbound timeout for n8n calls. Default `5` — keep it tight; Vapi expects tool results in ~2–3s. |
@@ -305,7 +305,7 @@ fine; to exercise the tools you only need `N8N_WEBHOOK_URL`, plus
 ## Security & hardening
 
 - **Webhook auth** — every `/tools/*` and `/webhook/*` route requires the
-  `x-vapi-secret` header (Vapi's documented server-auth header; set the same
+  `Authorization: Bearer <secret>` header (set the same
   value as the tool's *Server Secret* in Vapi). Missing/mismatched secrets get
   a `401`. Comparison is constant-time (`secrets.compare_digest`). Leave
   `VAPI_WEBHOOK_SECRET` empty to disable the check for local development.
@@ -326,7 +326,7 @@ fine; to exercise the tools you only need `N8N_WEBHOOK_URL`, plus
    and point its **server URL** at `https://<your-host>/tools/<endpoint>` once
    the endpoint is implemented in `app/routers/tools.py`.
 2. Set the tool's **Server Secret** to the same value as `VAPI_WEBHOOK_SECRET`;
-   Vapi sends it as the `x-vapi-secret` header on every request.
+  Vapi sends it as an `Authorization: Bearer <secret>` header on every request.
 3. When the LLM calls the tool, Vapi POSTs a payload like:
 
 ```json
