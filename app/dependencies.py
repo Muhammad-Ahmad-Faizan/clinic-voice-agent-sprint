@@ -3,7 +3,7 @@
 import logging
 import secrets
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from app.config import settings
 
@@ -23,7 +23,9 @@ if not settings.vapi_webhook_secret:
     )
 
 
-def verify_vapi_secret(x_vapi_secret: str | None = Header(default=None)) -> None:
+def verify_vapi_secret(
+    request: Request, x_vapi_secret: str | None = Header(default=None)
+) -> None:
     """Dependency: reject requests with a missing/invalid x-vapi-secret header.
 
     Applied to every route on the /tools and /webhook routers. Returns 401 for
@@ -35,6 +37,14 @@ def verify_vapi_secret(x_vapi_secret: str | None = Header(default=None)) -> None
     if x_vapi_secret is None or not secrets.compare_digest(
         x_vapi_secret, settings.vapi_webhook_secret
     ):
+        # TEMPORARY DEBUG LOGGING — REMOVE BEFORE FINAL SUBMISSION
+        logger.warning(
+            "TEMPORARY DEBUG LOGGING — rejected x-vapi-secret request: "
+            "headers=%s configured_secret=%r received_secret=%r",
+            dict(request.headers),
+            settings.vapi_webhook_secret,
+            x_vapi_secret,
+        )
         logger.warning("Rejected request: missing or invalid x-vapi-secret header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

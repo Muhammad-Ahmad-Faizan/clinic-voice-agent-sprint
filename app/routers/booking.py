@@ -42,7 +42,7 @@ def _temporary_debug_verify_vapi_secret(
 ) -> None:
     # TEMPORARY DEBUG LOGGING: remove this wrapper once header diagnostics are complete.
     logger.info("TEMPORARY DEBUG LOGGING: /tools/booking headers=%s", dict(request.headers))
-    verify_vapi_secret(x_vapi_secret)
+    verify_vapi_secret(request, x_vapi_secret)
 
 
 router = APIRouter(
