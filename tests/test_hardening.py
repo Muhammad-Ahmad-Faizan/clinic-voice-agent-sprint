@@ -136,7 +136,7 @@ async def test_n8n_retry_recovers_on_second_attempt(monkeypatch):
         )
         monkeypatch.setattr(n8n_client.settings, "n8n_max_retries", 1)
         data = await n8n_client.call_n8n_webhook(
-            {"date": "2026-09-10"}, path="check-availability"
+            {"date": "2026-09-10"}
         )
 
     assert attempts["n"] == 2

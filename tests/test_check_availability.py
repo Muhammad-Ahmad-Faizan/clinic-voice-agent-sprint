@@ -55,7 +55,7 @@ def test_check_availability_success_shape():
             }
         ]
     }
-    mocked.assert_awaited_once_with("2026-09-10", "cleaning")
+    mocked.assert_awaited_once_with("2026-09-10", None)
 
 
 def test_check_availability_service_type_optional():
@@ -188,7 +188,7 @@ async def test_call_n8n_webhook_timeout_becomes_n8n_error(monkeypatch):
             )
             with pytest.raises(N8NError, match="ReadTimeout"):
                 await n8n_client.call_n8n_webhook(
-                    {"date": "2026-09-12"}, path="check-availability"
+                    {"date": "2026-09-12"}
                 )
     finally:
         server.shutdown()

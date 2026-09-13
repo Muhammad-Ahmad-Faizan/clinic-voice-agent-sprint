@@ -50,18 +50,14 @@ async def close_client() -> None:
         _client = None
 
 
-async def call_n8n_webhook(
-    payload: dict[str, Any], *, path: str = "", url: str | None = None
-) -> Any:
+async def call_n8n_webhook(payload: dict[str, Any], *, url: str | None = None) -> Any:
     """POST `payload` as JSON to a configured n8n webhook.
 
     Args:
         payload: JSON-serializable body forwarded to the workflow.
-        path: Optional sub-path appended to N8N_WEBHOOK_URL — useful when one
-            n8n host serves several workflows ("availability", "booking", ...).
-        url: Optional explicit webhook URL. When given it wins over the
-            N8N_WEBHOOK_URL base + path combo (used by the dedicated
-            reschedule webhook, N8N_RESCHEDULE_WEBHOOK_URL).
+        url: Optional explicit webhook URL. When given it is used instead of
+            N8N_WEBHOOK_URL (used by the dedicated reschedule webhook,
+            N8N_RESCHEDULE_WEBHOOK_URL).
 
     Returns:
         The parsed JSON response, or `{}` when the workflow replies with an
@@ -74,7 +70,7 @@ async def call_n8n_webhook(
         base_url = settings.n8n_webhook_url
         if not base_url:
             raise N8NError("N8N_WEBHOOK_URL is not configured")
-        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}" if path else base_url
+        url = base_url
     client = get_client()
 
     # Timeout comes from the shared client (settings.n8n_timeout_seconds).
@@ -135,21 +131,28 @@ async def call_n8n_webhook(
         return {"raw": response.text}
 
 
-async def get_availability(date: str, service_type: str | None = None) -> Any:
+async def get_availability(date: str, requested_time: str | None = None) -> Any:
     """Query open appointment slots for `date` via the n8n calendar workflow.
 
-    POSTs to {N8N_WEBHOOK_URL}/check-availability; n8n queries Google
-    Calendar and answers synchronously through its "Respond to Webhook" node:
+    POSTs to N8N_WEBHOOK_URL; the workflow Switch node routes on `action`:
 
-        {"available_slots": ["10:00 AM", "2:30 PM"]}
+        {"action": "check_availability", "requested_date": "...",
+         "requested_time": "..."}
+
+    The response is returned as-is:
+
+        {"available": true}
+        {"available": false, "alternative_slots": [...]}
 
     Raises N8NError on timeouts/connection errors or a non-2xx response —
     callers turn that into a graceful message for Vapi.
     """
-    payload: dict[str, Any] = {"date": date}
-    if service_type:
-        payload["service_type"] = service_type
-    return await call_n8n_webhook(payload, path="check-availability")
+    payload: dict[str, Any] = {
+        "action": "check_availability",
+        "requested_date": date,
+        "requested_time": requested_time or "",
+    }
+    return await call_n8n_webhook(_drop_empty(payload))
 
 
 async def create_booking(
@@ -158,31 +161,32 @@ async def create_booking(
     date: str = "",
     time: str = "",
     service_type: str = "",
+    call_id: str = "",
 ) -> str:
     """Create an appointment via the n8n calendar workflow.
 
-    POSTs to {N8N_WEBHOOK_URL}/book-appointment; n8n creates the Google
-    Calendar event and answers synchronously through its "Respond to Webhook"
-    node:
+    POSTs to N8N_WEBHOOK_URL; the workflow Switch node routes on `action`:
 
-        {"booking_reference": "BK-2026-0001"}
+        {"action": "book", "patient_name": "...", "reason": "...",
+         "requested_date": "...", "requested_time": "...", "call_id": "..."}
 
     Empty string fields (e.g. phone on the normalized booking schema, which
     carries no phone) are omitted from the forwarded payload.
 
-    Returns the booking_reference string.
+    Returns the appointment_id string.
 
     Raises N8NError on transport failures, non-2xx responses, or a reply that
-    doesn't include a booking_reference.
+    doesn't include an appointment_id.
     """
     payload: dict[str, Any] = {
+        "action": "book",
         "patient_name": patient_name,
-        "phone_number": phone_number,
-        "date": date,
-        "time": time,
-        "service_type": service_type,
+        "reason": service_type,
+        "requested_date": date,
+        "requested_time": time,
+        "call_id": call_id,
     }
-    data = await call_n8n_webhook(_drop_empty(payload), path="book-appointment")
+    data = await call_n8n_webhook(_drop_empty(payload))
 
     if isinstance(data, str):
         # Tolerate a bare-string reply carrying just the reference.
@@ -190,24 +194,26 @@ async def create_booking(
         if reference:
             return reference
     elif isinstance(data, dict):
-        reference = data.get("booking_reference")
+        reference = (
+            data.get("appointment_id") if data.get("status") == "success" else None
+        )
         if isinstance(reference, str) and reference.strip():
             return reference.strip()
 
-    raise N8NError("n8n book-appointment returned no booking_reference")
+    raise N8NError("n8n book returned no appointment_id")
 
 
 async def cancel_booking(booking_reference: str) -> Any:
     """Cancel an appointment via the n8n calendar workflow.
 
-    POSTs to {N8N_WEBHOOK_URL}/cancel-appointment; n8n deletes the Google
+    POSTs to N8N_WEBHOOK_URL with `action: "cancel"`. n8n deletes the Google
     Calendar event and may trigger a notification. Any JSON response is
-    returned as-is (a fire-and-forget reply is fine here too).
+    returned as-is.
 
     Raises N8NError on transport failures or non-2xx responses.
     """
     return await call_n8n_webhook(
-        {"booking_reference": booking_reference}, path="cancel-appointment"
+        {"action": "cancel", "existing_appointment_id": booking_reference}
     )
 
 

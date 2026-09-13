@@ -125,7 +125,7 @@ def test_booking_success_writes_decision_log_entry():
     assert "BK-2026-0042" in body["message"]
 
     mocked.assert_awaited_once_with(
-        "Jane Doe", "", "2026-09-15", "10:30", "cleaning"
+        "Jane Doe", "", "2026-09-15", "10:30", "cleaning", call_id="call_book_ok"
     )
 
     entries = read_entries()

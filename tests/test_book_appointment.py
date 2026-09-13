@@ -54,7 +54,8 @@ def test_book_appointment_success_shape():
     assert "Jane Doe" in result["result"]["confirmation"]
     assert "BK-2026-0001" in result["result"]["confirmation"]
     mocked.assert_awaited_once_with(
-        "Jane Doe", "+1-555-0100", "2026-09-12", "10:30", "cleaning"
+        "Jane Doe", "+1-555-0100", "2026-09-12", "10:30", "cleaning",
+        call_id="toolu_book_01",
     )
 
 
@@ -132,15 +133,18 @@ def test_book_appointment_n8n_error_fallback_then_retry_books():
 @pytest.mark.anyio
 async def test_create_booking_parses_booking_reference(monkeypatch):
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/webhook/book-appointment"
+        assert request.url.path == "/webhook"
         assert json.loads(request.content) == {
+            "action": "book",
             "patient_name": "Jane Doe",
-            "phone_number": "+1-555-0100",
-            "date": "2026-09-12",
-            "time": "10:30",
-            "service_type": "cleaning",
+            "reason": "cleaning",
+            "requested_date": "2026-09-12",
+            "requested_time": "10:30",
+            "call_id": "call_book_01",
         }
-        return httpx.Response(200, json={"booking_reference": "BK-2026-0001"})
+        return httpx.Response(
+            200, json={"status": "success", "appointment_id": "APPT-2026-0001"}
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         monkeypatch.setattr(n8n_client, "get_client", lambda: client)
@@ -148,10 +152,11 @@ async def test_create_booking_parses_booking_reference(monkeypatch):
             n8n_client.settings, "n8n_webhook_url", "https://n8n.example.com/webhook"
         )
         reference = await n8n_client.create_booking(
-            "Jane Doe", "+1-555-0100", "2026-09-12", "10:30", "cleaning"
+            "Jane Doe", "+1-555-0100", "2026-09-12", "10:30", "cleaning",
+            "call_book_01",
         )
 
-    assert reference == "BK-2026-0001"
+    assert reference == "APPT-2026-0001"
 
 
 @pytest.mark.anyio
@@ -164,7 +169,7 @@ async def test_create_booking_missing_reference_raises(monkeypatch):
         monkeypatch.setattr(
             n8n_client.settings, "n8n_webhook_url", "https://n8n.example.com/webhook"
         )
-        with pytest.raises(N8NError, match="no booking_reference"):
+        with pytest.raises(N8NError, match="no appointment_id"):
             await n8n_client.create_booking(
                 "Jane Doe", "+1-555-0100", "2026-09-12", "10:30", "cleaning"
             )

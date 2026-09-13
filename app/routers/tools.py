@@ -85,7 +85,7 @@ async def check_availability(request: VapiToolCallRequest) -> VapiToolResponse:
         call_started = time.perf_counter()
         try:
             args = CheckAvailabilityArgs.model_validate(call.function.parameters)
-            data = await n8n_client.get_availability(args.date, args.service_type)
+            data = await n8n_client.get_availability(args.date, args.preferred_time_range)
 
             if not isinstance(data, dict):
                 logger.warning(
@@ -95,8 +95,15 @@ async def check_availability(request: VapiToolCallRequest) -> VapiToolResponse:
                 )
                 data = {}
 
-            slots = [str(slot) for slot in (data.get("available_slots") or [])]
-            if slots:
+            slots = [
+                str(slot)
+                for slot in (
+                    data.get("alternative_slots") or data.get("available_slots") or []
+                )
+            ]
+            if data.get("available") is True:
+                message = "That time is available. Would you like me to book it?"
+            elif slots:
                 message = f"Open slots: {', '.join(slots)}"
             else:
                 message = (
@@ -111,17 +118,17 @@ async def check_availability(request: VapiToolCallRequest) -> VapiToolResponse:
                 action_taken="check_availability",
                 outcome="success",
                 notes=(
-                    f"date={args.date} service_type={args.service_type or 'any'} "
+                    f"date={args.date} requested_time={args.preferred_time_range or 'any'} "
                     f"open_slots={len(slots)} "
                     f"latency_ms={(time.perf_counter() - call_started) * 1000:.0f}"
                 ),
             )
             logger.info(
-                "check-availability: call=%s date=%s service_type=%s slots=%s "
+                "check-availability: call=%s date=%s requested_time=%s slots=%s "
                 "latency=%.0fms",
                 call.id,
                 args.date,
-                args.service_type or "any",
+                args.preferred_time_range or "any",
                 slots,
                 (time.perf_counter() - call_started) * 1000,
             )
@@ -223,6 +230,7 @@ async def book_appointment(request: VapiToolCallRequest) -> VapiToolResponse:
                 args.date,
                 args.time,
                 args.service_type,
+                call_id=call.id,
             )
             confirmation = {
                 "booking_reference": booking_reference,

@@ -105,9 +105,10 @@ def _pin_n8n_settings(monkeypatch):
 
 def test_check_availability_with_mocked_n8n():
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/check-availability").mock(
+        route = router.post(N8N_BASE).mock(
             return_value=httpx.Response(
-                200, json={"available_slots": ["10:00 AM", "2:30 PM"]}
+            200,
+            json={"available": False, "alternative_slots": ["10:00 AM", "2:30 PM"]},
             )
         )
         response = client.post("/tools/check-availability", json=CHECK_PAYLOAD)
@@ -122,8 +123,8 @@ def test_check_availability_with_mocked_n8n():
 
 def test_check_availability_no_slots_with_mocked_n8n():
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/check-availability").mock(
-            return_value=httpx.Response(200, json={"available_slots": []})
+        route = router.post(N8N_BASE).mock(
+            return_value=httpx.Response(200, json={"available": False, "alternative_slots": []})
         )
         response = client.post("/tools/check-availability", json=CHECK_PAYLOAD)
 
@@ -136,7 +137,7 @@ def test_check_availability_no_slots_with_mocked_n8n():
 def test_check_availability_n8n_503_retries_then_fallback():
     """A transient n8n 503 is retried once, then surfaced as a fallback."""
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/check-availability").mock(
+        route = router.post(N8N_BASE).mock(
             return_value=httpx.Response(503, json={"error": "n8n down"})
         )
         response = client.post("/tools/check-availability", json=CHECK_PAYLOAD)
@@ -154,27 +155,30 @@ def test_book_appointment_with_mocked_n8n():
 
     def book_handler(request: httpx.Request) -> httpx.Response:
         received.append(json.loads(request.content))
-        return httpx.Response(200, json={"booking_reference": "BK-2026-0001"})
+        return httpx.Response(
+            200, json={"status": "success", "appointment_id": "APPT-2026-0001"}
+        )
 
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/book-appointment").mock(side_effect=book_handler)
+        route = router.post(N8N_BASE).mock(side_effect=book_handler)
         response = client.post("/tools/book-appointment", json=BOOK_PAYLOAD)
 
     assert response.status_code == 200
     result = response.json()["results"][0]
     assert result["toolCallId"] == "toolu_book_http_01"
     assert result["error"] is None
-    assert result["result"]["booking_reference"] == "BK-2026-0001"
+    assert result["result"]["booking_reference"] == "APPT-2026-0001"
     assert "Jane Doe" in result["result"]["confirmation"]
 
     # The exact JSON body n8n received:
     assert received == [
         {
+            "action": "book",
             "patient_name": "Jane Doe",
-            "phone_number": "+1-555-0100",
-            "date": "2026-09-12",
-            "time": "10:30",
-            "service_type": "cleaning",
+            "reason": "cleaning",
+            "requested_date": "2026-09-12",
+            "requested_time": "10:30",
+            "call_id": "toolu_book_http_01",
         }
     ]
     assert route.call_count == 1
@@ -183,9 +187,9 @@ def test_book_appointment_with_mocked_n8n():
 def test_book_appointment_idempotent_with_mocked_n8n():
     """Same toolCallId twice -> same reference, n8n receives exactly ONE call."""
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/book-appointment").mock(
+        route = router.post(N8N_BASE).mock(
             return_value=httpx.Response(
-                200, json={"booking_reference": "BK-2026-0001"}
+            200, json={"status": "success", "appointment_id": "APPT-2026-0001"}
             )
         )
         first = client.post("/tools/book-appointment", json=BOOK_PAYLOAD)
@@ -197,7 +201,7 @@ def test_book_appointment_idempotent_with_mocked_n8n():
     assert (
         first_result["result"]["booking_reference"]
         == second_result["result"]["booking_reference"]
-        == "BK-2026-0001"
+        == "APPT-2026-0001"
     )
     assert (
         first_result["result"]["confirmation"]
@@ -215,18 +219,18 @@ def test_book_appointment_different_tool_call_ids_book_twice():
     ] = f"toolu_book_http_{uuid.uuid4().hex[:8]}"
 
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/book-appointment").mock(
+        route = router.post(N8N_BASE).mock(
             side_effect=[
-                httpx.Response(200, json={"booking_reference": "BK-2026-0001"}),
-                httpx.Response(200, json={"booking_reference": "BK-2026-0002"}),
+            httpx.Response(200, json={"status": "success", "appointment_id": "APPT-2026-0001"}),
+            httpx.Response(200, json={"status": "success", "appointment_id": "APPT-2026-0002"}),
             ]
         )
         first = client.post("/tools/book-appointment", json=BOOK_PAYLOAD)
         second = client.post("/tools/book-appointment", json=second_payload)
 
     assert route.call_count == 2
-    assert first.json()["results"][0]["result"]["booking_reference"] == "BK-2026-0001"
-    assert second.json()["results"][0]["result"]["booking_reference"] == "BK-2026-0002"
+    assert first.json()["results"][0]["result"]["booking_reference"] == "APPT-2026-0001"
+    assert second.json()["results"][0]["result"]["booking_reference"] == "APPT-2026-0002"
 
 
 # --- POST /tools/cancel-appointment --------------------------------------------
@@ -237,10 +241,10 @@ def test_cancel_appointment_with_mocked_n8n():
 
     def cancel_handler(request: httpx.Request) -> httpx.Response:
         received.append(json.loads(request.content))
-        return httpx.Response(200, json={"status": "cancelled"})
+        return httpx.Response(200, json={"status": "success"})
 
     with respx.mock(base_url=N8N_BASE) as router:
-        route = router.post("/cancel-appointment").mock(side_effect=cancel_handler)
+        route = router.post(N8N_BASE).mock(side_effect=cancel_handler)
         response = client.post("/tools/cancel-appointment", json=CANCEL_PAYLOAD)
 
     assert response.status_code == 200
@@ -248,7 +252,7 @@ def test_cancel_appointment_with_mocked_n8n():
     assert result["toolCallId"] == "toolu_cancel_http_01"
     assert result["error"] is None
     assert "BK-2026-0001 has been cancelled" in result["result"]
-    assert received == [{"booking_reference": "BK-2026-0001"}]
+    assert received == [{"action": "cancel", "existing_appointment_id": "BK-2026-0001"}]
     assert route.call_count == 1
 
 
@@ -301,7 +305,7 @@ def test_reschedule_conflict_offers_alternatives_with_mocked_n8n(monkeypatch):
         router.post(RESCHEDULE_BASE).mock(
             return_value=httpx.Response(200, json={"status": "conflict"})
         )
-        router.post(f"{N8N_BASE}/check-availability").mock(
+        router.post(N8N_BASE).mock(
             return_value=httpx.Response(200, json={"available_slots": ["11:00 AM", "2:30 PM"]})
         )
         response = client.post("/tools/booking", json=RESCHEDULE_PAYLOAD)

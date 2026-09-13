@@ -108,6 +108,7 @@ async def _handle_book(request: BookingRequest) -> BookingResponse:
             request.requested_date,
             request.requested_time,
             request.reason or "Appointment",
+            call_id=request.call_id,
         )
     except N8NError as exc:
         logger.error("booking: n8n failed for call %s: %s", request.call_id, exc)
@@ -372,7 +373,7 @@ async def _offer_alternative_slots(
             continue
         if not isinstance(data, dict):
             continue
-        for slot in data.get("available_slots") or []:
+        for slot in data.get("alternative_slots") or data.get("available_slots") or []:
             alternatives.append(f"{day} at {slot}")
             if len(alternatives) >= max_alternatives:
                 break
