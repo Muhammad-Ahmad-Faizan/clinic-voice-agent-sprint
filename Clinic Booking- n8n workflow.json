@@ -1,0 +1,392 @@
+{
+  "name": "Clinic Booking",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0e895d00-2b90-4482-8179-c844e81279b5",
+      "name": "Webhook",
+      "webhookId": "06c8d159-06a0-45de-9811-352a2105e7ce"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "check_availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6d5312f8-7a4b-47a3-b5a2-66d89bf049b4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7f65a7bc-0a8a-4bfb-b9a7-c1c5f4c650b2",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "book",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7adb2cfc-a3e3-4179-ade2-343d62544ea3",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "78e238dc-4ace-45ff-bd73-f2edbb3563f6",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "zmarketingcompany@gmail.com",
+          "mode": "list",
+          "cachedResultName": "zmarketingcompany@gmail.com"
+        },
+        "timeMin": "={{ $json.body.requested_date }}T{{ $json.body.requested_time }}:00",
+        "timeMax": "={{ DateTime.fromISO($json.body.requested_date + \"T\" + $json.body.requested_time + \":00\").plus({minutes: 60}).toISO() }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        -112
+      ],
+      "id": "4b7470ba-63dc-4a8c-8958-67515c025abd",
+      "name": "Get many events",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "awAdUqXQeqHbWIQC",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "452b7880-5159-4059-8b9a-612438540c51",
+              "leftValue": "={{ $json.id === undefined }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        -112
+      ],
+      "id": "af34b4b6-1d84-4366-8c5e-a5086a208508",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"available\": true}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        832,
+        -176
+      ],
+      "id": "4d30ec0f-540d-408f-8c0f-d5ca7902e4af",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"available\": false, \"alternative_slots\": [\"2026-09-20T10:00\", \"2026-09-20T14:00\"]}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        832,
+        -16
+      ],
+      "id": "c8098ef9-531e-416c-af0f-5a5b217185aa",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "zmarketingcompany@gmail.com",
+          "mode": "list",
+          "cachedResultName": "Clinic Voice Agent"
+        },
+        "start": "={{ $json.body.requested_date }}T{{ $json.body.requested_time }}:00",
+        "end": "={{ DateTime.fromISO($json.body.requested_date + \"T\" + $json.body.requested_time + \":00\").plus({minutes: 60}).toISO() }}",
+        "additionalFields": {
+          "description": "={{ $json.body.call_id }}",
+          "summary": "={{ $json.body.patient_name }} — {{ $json.body.reason }}\n"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        480,
+        32
+      ],
+      "id": "b8d7dcc8-b78d-439a-8215-54eb6ca0f14a",
+      "name": "Create an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "awAdUqXQeqHbWIQC",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"success\", \"appointment_id\": \"{{ $json.id }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        64
+      ],
+      "id": "4c7933e5-cd5b-4ae0-84ca-385b182d98a2",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "zmarketingcompany@gmail.com",
+          "mode": "list",
+          "cachedResultName": "Clinic Voice Agent"
+        },
+        "eventId": "={{ $json.body.existing_appointment_id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        160
+      ],
+      "id": "7ba4986e-6d8b-4ac4-958a-7d0551fc946b",
+      "name": "Delete an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "awAdUqXQeqHbWIQC",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"success\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        720,
+        208
+      ],
+      "id": "277fee80-f002-4c8c-bfc8-6808b5273c30",
+      "name": "Respond to Webhook3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Get many events",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete an event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete an event": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0933c184-8f10-4988-b41d-f8ac3cd2001f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b12e7dd4f7d625a6defce46d7316082a5669bf3ff4fd6964664494j9u9c61ec35"
+  },
+  "nodeGroups": [],
+  "id": "1n8afPdfwKeGLiz1",
+  "tags": []
+}
